@@ -1,0 +1,267 @@
+<!doctype html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Respaldo y Restauración · 4TMS</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{--navy:#22255A;--gold:#D8A828;--green:#6FA52C;--red:#C0392B;--line:#e3e6ef;--mut:#6b7280}
+*{box-sizing:border-box}
+body{font-family:Arial,Helvetica,sans-serif;background:#f4f5f9;color:#20232e;margin:0;padding:24px 14px 60px;line-height:1.5}
+.wrap{max-width:820px;margin:0 auto}
+.logo{font-weight:bold;font-size:26px;color:var(--navy)}.logo span{color:var(--gold)}
+h1{font-size:20px;color:var(--navy);margin:4px 0 6px}
+.sub{color:var(--mut);font-size:13px;margin-bottom:18px}
+.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin-bottom:16px}
+.btn{background:var(--navy);color:#fff;border:none;border-radius:10px;padding:14px 22px;font-size:15px;font-weight:bold;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.g{background:var(--green)}
+.note{font-size:12px;color:var(--mut);margin-top:10px}
+.log{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:#0f1220;color:#d7dcf0;border-radius:10px;padding:14px;height:340px;overflow:auto;white-space:pre-wrap;margin-top:14px}
+.log .ok{color:#7ee081}.log .err{color:#ff8a80}.log .hi{color:#ffd45e}
+.sum{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px}
+.sum .b{background:#f6f7fb;border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}
+.sum .n{font-size:22px;font-weight:bold;color:var(--navy)}.sum .l{font-size:11px;color:var(--mut);text-transform:uppercase}
+b.warn{color:var(--red)}
+.fld2{margin:8px 0}.fld2 label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}.fld2 input{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-size:13px}
+</style></head>
+<body><div class="wrap">
+  <div class="logo">4T<span>MS</span></div>
+  <h1>Respaldo y restauración · los 3 módulos</h1>
+  <div class="sub">Baja toda la información que tú y el equipo cargaron en Prospección, Operación y Financiero, más todos los archivos. Todo desde una sola base Supabase.</div>
+
+  <div class="card">
+    <div class="fld2"><label>Tu email (el mismo de las apps)</label><input type="email" id="au_mail" placeholder="tu@correo.cl"></div>
+    <div class="fld2"><label>Tu contraseña</label><input type="password" id="au_pass" placeholder="contraseña"></div>
+        <button class="btn g" id="btn" onclick="respaldar()">⬇ Respaldar TODO ahora</button>
+    <div class="note">Se descargarán <b>dos archivos</b>: un <b>.json</b> con todas las tablas y un <b>.zip</b> con todos los documentos, CV y propuestas. Guárdalos en un lugar seguro. Esto solo <b>lee</b> la base — no modifica ni borra nada.</div>
+    <div class="sum" id="sum" style="display:none">
+      <div class="b"><div class="n" id="s_tab">0</div><div class="l">Tablas</div></div>
+      <div class="b"><div class="n" id="s_reg">0</div><div class="l">Registros</div></div>
+      <div class="b"><div class="n" id="s_arch">0</div><div class="l">Archivos</div></div>
+    </div>
+    <div class="log" id="log">Listo para respaldar. Aprieta el botón de arriba.\n</div>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:bold;color:var(--navy);font-size:16px;margin-bottom:4px">Restaurar desde un respaldo</div>
+    <div class="note" style="margin-top:0;margin-bottom:12px">Si alguna vez necesitas recuperar, carga aquí el <b>.json</b> (datos) y opcionalmente el <b>.zip</b> (archivos) de un respaldo, y los vuelve a cargar. Usa <b>upsert</b>: actualiza lo que exista y agrega lo que falte, <b>sin duplicar</b>. Correrlo dos veces no hace daño.</div>
+    <div class="fld2"><label>1. Archivo de datos (.json)</label><input type="file" id="f_json" accept=".json"></div>
+    <div class="fld2"><label>2. Archivo de documentos (.zip) — opcional</label><input type="file" id="f_zip" accept=".zip"></div>
+    <button class="btn" id="btnR" onclick="restaurar()" style="background:var(--gold);color:var(--navy);margin-top:8px">↩ Restaurar</button>
+    <div class="note"><b class="warn">Ojo:</b> restaurar escribe en la base. Úsalo solo para recuperar. Verás cada paso en el registro de arriba.</div>
+  </div>
+</div>
+
+<script>
+const SUPA_URL='https://bgoetvepmyfpolowgwnr.supabase.co';
+const SUPA_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJnb2V0dmVwbXlmcG9sb3dnd25yIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4MzMxNTgsImV4cCI6MjA5ODQwOTE1OH0.9eE5iDiaMO9R3b_paSxMHnzLCrRA-ewreuFJhU-LnjU';
+
+// Todas las tablas de los 3 módulos
+const TABLAS=[
+ // Operación
+ 'proyectos','proyecto_etapas','candidatos','candidatos_proyecto','adjuntos','hitos_facturacion','referencias','entregables_od','sesiones_mentoring','encuestas','ejecutivos','placements',
+ // Prospección
+ 'contactos','possibles','propuestas','acciones','parametros',
+ // Financiero
+ 'gastos','duemint_docs','movimientos','facturas','pagos_aplicados'
+];
+const BUCKETS=['documentos','cvs','propuestas'];
+
+let sb, nTab=0, nReg=0, nArch=0;
+
+function log(msg,cls){var l=document.getElementById('log');l.innerHTML+=(cls?'<span class="'+cls+'">'+msg+'</span>':msg)+'\n';l.scrollTop=l.scrollHeight;}
+function pad(s,n){s=String(s);return s+' '.repeat(Math.max(0,n-s.length));}
+function upd(){document.getElementById('s_tab').textContent=nTab;document.getElementById('s_reg').textContent=nReg.toLocaleString('es-CL');document.getElementById('s_arch').textContent=nArch;}
+
+// Dump de una tabla con paginación (para que traiga TODAS las filas, no solo 1000)
+async function dumpTabla(t){
+ var all=[],from=0,page=1000;
+ while(true){
+  var r=await sb.from(t).select('*').range(from,from+page-1);
+  if(r.error) throw r.error;
+  var d=r.data||[];
+  all=all.concat(d);
+  if(d.length<page) break;
+  from+=page;
+  log('    ... '+t+': '+all.length.toLocaleString('es-CL')+' y contando');
+ }
+ return all;
+}
+
+// Listado recursivo de un bucket (baja archivos en subcarpetas también)
+async function listar(bucket,prefix){
+ var out=[],offset=0;
+ while(true){
+  var r=await sb.storage.from(bucket).list(prefix,{limit:1000,offset:offset,sortBy:{column:'name',order:'asc'}});
+  if(r.error) throw r.error;
+  var items=r.data||[];
+  for(var i=0;i<items.length;i++){
+   var it=items[i];var path=prefix?prefix+'/'+it.name:it.name;
+   if(it.id===null && it.metadata===null){ // carpeta -> recursión
+    var sub=await listar(bucket,path); out=out.concat(sub);
+   } else { out.push(path); }
+  }
+  if(items.length<1000) break;
+  offset+=1000;
+ }
+ return out;
+}
+
+function bajar(nombre,blob){
+ var u=URL.createObjectURL(blob);var a=document.createElement('a');a.href=u;a.download=nombre;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u);},4000);
+}
+
+
+// ===== LOGIN (necesario: Supabase solo muestra tus datos si inicias sesión) =====
+async function login(){
+ if(!sb) sb=window.supabase.createClient(SUPA_URL,SUPA_ANON);
+ var mail=(document.getElementById('au_mail').value||'').trim();
+ var pass=document.getElementById('au_pass').value||'';
+ if(!mail||!pass){ alert('Pon tu email y contraseña (los mismos que usas en las apps).'); return false; }
+ log('Iniciando sesión como '+mail+'…','hi');
+ var r=await sb.auth.signInWithPassword({email:mail,password:pass});
+ if(r.error){ log('✖ No se pudo iniciar sesión: '+r.error.message,'err'); alert('No se pudo iniciar sesión: '+r.error.message+'\n\nUsa el mismo email y contraseña con que entras a Prospección/Operación.'); return false; }
+ log('✔ Sesión iniciada. Ahora sí veo toda tu data.','ok');
+ return true;
+}
+
+async function respaldar(){
+ var btn=document.getElementById('btn');btn.disabled=true;
+ document.getElementById('sum').style.display='grid';
+ nTab=0;nReg=0;nArch=0;upd();
+ try{
+  sb=window.supabase.createClient(SUPA_URL,SUPA_ANON);
+  if(!(await login())){ btn.disabled=false; return; }
+  var fecha=new Date().toISOString().slice(0,16).replace(/[:T]/g,'-');
+  var data={_respaldo:'COMPLETO · Prospección + Operación + Financiero',_fecha:new Date().toISOString(),_url:SUPA_URL,tablas:{}};
+
+  // ---- 1) TABLAS ----
+  log('=== 1) TABLAS ===','hi');
+  for(var i=0;i<TABLAS.length;i++){
+   var t=TABLAS[i];
+   try{
+    var rows=await dumpTabla(t);
+    data.tablas[t]=rows; nTab++; nReg+=rows.length; upd();
+    log('  ✔ '+pad(t,22)+rows.length.toLocaleString('es-CL')+' registros',(rows.length>0?'ok':null));
+   }catch(e){
+    data.tablas[t]={__error:String(e.message||e)};
+    log('  ✖ '+pad(t,22)+'ERROR: '+(e.message||e)+' (¿tabla no existe? se omite)','err');
+   }
+  }
+  // descargar JSON de datos
+  var jblob=new Blob([JSON.stringify(data,null,1)],{type:'application/json'});
+  bajar('respaldo-COMPLETO-datos-'+fecha+'.json',jblob);
+  log('  ⬇ JSON de datos descargado ('+Math.round(jblob.size/1024).toLocaleString('es-CL')+' KB)','ok');
+
+  // ---- 2) ARCHIVOS ----
+  log('','');log('=== 2) ARCHIVOS (documentos, CV, propuestas) ===','hi');
+  var zip=new JSZip();
+  for(var b=0;b<BUCKETS.length;b++){
+   var bucket=BUCKETS[b];
+   try{
+    var paths=await listar(bucket,'');
+    log('  Bucket "'+bucket+'": '+paths.length+' archivo(s)','hi');
+    for(var p=0;p<paths.length;p++){
+     var path=paths[p];
+     try{
+      var dl=await sb.storage.from(bucket).download(path);
+      if(dl.error) throw dl.error;
+      zip.file(bucket+'/'+path, dl.data);
+      nArch++; upd();
+      log('    ✔ '+bucket+'/'+path);
+     }catch(e){ log('    ✖ no bajó '+bucket+'/'+path+' — '+(e.message||e),'err'); }
+    }
+   }catch(e){ log('  ✖ bucket "'+bucket+'": '+(e.message||e)+' (¿no existe? se omite)','err'); }
+  }
+  log('  Comprimiendo archivos…','hi');
+  var zblob=await zip.generateAsync({type:'blob'},function(m){ /* progreso opcional */ });
+  bajar('respaldo-COMPLETO-archivos-'+fecha+'.zip',zblob);
+  log('  ⬇ ZIP de archivos descargado ('+Math.round(zblob.size/1024).toLocaleString('es-CL')+' KB)','ok');
+
+  log('','');
+  log('✅ RESPALDO COMPLETO LISTO.','ok');
+  log('   '+nTab+' tablas · '+nReg.toLocaleString('es-CL')+' registros · '+nArch+' archivos.','ok');
+  log('   Guarda los DOS archivos que se descargaron en un lugar seguro.','ok');
+  if(nReg<1000){ log('   ⚠ Si esperabas más registros (ej: la BBDD de contactos), revisa que no haya errores arriba en rojo.','err'); }
+ }catch(e){
+  log('✖ ERROR GENERAL: '+(e.message||e),'err');
+ }
+ btn.disabled=false;
+}
+
+// ======================= RESTAURAR =======================
+// Orden: primero entidades base (padres), luego las que dependen de ellas.
+const ORDEN_RESTORE=[
+ 'ejecutivos','contactos','proyectos','candidatos','parametros',
+ 'candidatos_proyecto','proyecto_etapas','hitos_facturacion','adjuntos','placements','encuestas','referencias','entregables_od','sesiones_mentoring',
+ 'possibles','propuestas','acciones',
+ 'gastos','duemint_docs','movimientos','facturas','pagos_aplicados'
+];
+function leerArchivo(input,tipo){return new Promise(function(res,rej){var f=input.files[0];if(!f){res(null);return;}var r=new FileReader();r.onload=function(){res(r.result);};r.onerror=function(){rej(new Error('No se pudo leer '+f.name));};if(tipo==='text')r.readAsText(f);else r.readAsArrayBuffer(f);});}
+
+async function upsertChunk(t,rows){
+ var CH=400,ok=0;
+ for(var i=0;i<rows.length;i+=CH){
+  var chunk=rows.slice(i,i+CH);
+  var r=await sb.from(t).upsert(chunk);
+  if(r.error) throw r.error;
+  ok+=chunk.length;
+  if(rows.length>CH) log('    ... '+t+': '+ok.toLocaleString('es-CL')+'/'+rows.length.toLocaleString('es-CL'));
+ }
+ return ok;
+}
+
+async function restaurar(){
+ var btnR=document.getElementById('btnR');
+ var jtxt=await leerArchivo(document.getElementById('f_json'),'text');
+ if(!jtxt){alert('Primero carga el archivo .json de datos.');return;}
+ if(!confirm('Vas a restaurar datos en la base. Usa upsert (no duplica). ¿Continuar?'))return;
+ btnR.disabled=true;
+ document.getElementById('sum').style.display='grid';
+ nTab=0;nReg=0;nArch=0;upd();
+ try{
+  sb=window.supabase.createClient(SUPA_URL,SUPA_ANON);
+  if(!(await login())){ btnR.disabled=false; return; }
+  var data=JSON.parse(jtxt);
+  var tablas=data.tablas||data;
+  log('=== RESTAURAR DATOS ===','hi');
+  // recorrer en orden de dependencias; lo que no esté en el orden va al final
+  var claves=Object.keys(tablas);
+  var orden=ORDEN_RESTORE.filter(function(t){return claves.indexOf(t)>=0;}).concat(claves.filter(function(t){return ORDEN_RESTORE.indexOf(t)<0;}));
+  for(var i=0;i<orden.length;i++){
+   var t=orden[i];var rows=tablas[t];
+   if(!Array.isArray(rows)){ log('  · '+pad(t,22)+'(sin datos o con error en el respaldo, se omite)'); continue; }
+   if(rows.length===0){ log('  · '+pad(t,22)+'0 registros'); nTab++; continue; }
+   try{
+    var n=await upsertChunk(t,rows);
+    nTab++; nReg+=n; upd();
+    log('  ✔ '+pad(t,22)+n.toLocaleString('es-CL')+' registros restaurados','ok');
+   }catch(e){
+    log('  ✖ '+pad(t,22)+'ERROR: '+(e.message||e),'err');
+   }
+  }
+  // ---- archivos ----
+  var zbuf=await leerArchivo(document.getElementById('f_zip'),'bin');
+  if(zbuf){
+   log('','');log('=== RESTAURAR ARCHIVOS ===','hi');
+   var zip=await JSZip.loadAsync(zbuf);
+   var names=Object.keys(zip.files).filter(function(n){return !zip.files[n].dir;});
+   for(var k=0;k<names.length;k++){
+    var name=names[k]; // formato: bucket/path...
+    var slash=name.indexOf('/');
+    var bucket=name.slice(0,slash), path=name.slice(slash+1);
+    try{
+     var blob=await zip.files[name].async('blob');
+     var up=await sb.storage.from(bucket).upload(path,blob,{upsert:true});
+     if(up.error) throw up.error;
+     nArch++; upd();
+     log('    ✔ '+name);
+    }catch(e){ log('    ✖ '+name+' — '+(e.message||e),'err'); }
+   }
+  }
+  log('','');log('✅ RESTAURACIÓN LISTA. '+nTab+' tablas · '+nReg.toLocaleString('es-CL')+' registros · '+nArch+' archivos.','ok');
+ }catch(e){ log('✖ ERROR: '+(e.message||e),'err'); }
+ btnR.disabled=false;
+}
+
+</script>
+</body></html>
